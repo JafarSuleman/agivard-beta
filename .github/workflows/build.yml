@@ -9,7 +9,8 @@
 #   public repo's workspace, and deleted at the end.
 # - Token permissions are read-only. Only finished installers are uploaded as
 #   artifacts (no source, no target/ dir, no debug symbols). target/ is never
-#   cached; only the public crates.io registry is.
+#   cached; only the public crates.io registry is. Compiler output uses
+#   --message-format=short so warnings never echo source lines.
 # - Third-party actions are pinned to full commit SHAs.
 name: build
 
@@ -108,13 +109,13 @@ jobs:
       - name: Build (CI profile, unsigned)
         run: |
           cd "$SRC"
-          cargo build --profile ci --locked -p agivard-cli -p agivard-app
+          cargo build --profile ci --locked -p agivard-cli -p agivard-app --message-format=short
 
       - name: Test
         timeout-minutes: 30
         run: |
           cd "$SRC"
-          cargo test --locked --workspace --no-fail-fast
+          cargo test --locked --workspace --no-fail-fast --message-format=short
 
       # ---- Package -----------------------------------------------------------
       - name: Mac — Agivard.app in a drag-to-Applications DMG (signed last)
