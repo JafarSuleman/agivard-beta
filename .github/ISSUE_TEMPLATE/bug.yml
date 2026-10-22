@@ -1,0 +1,32 @@
+name: Confusing or bug
+description: Something looked wrong, crashed, or was hard to understand.
+title: "[Bug] "
+labels: ["bug", "beta"]
+body:
+  - type: dropdown
+    id: os
+    attributes:
+      label: Your OS
+      options: [macOS Apple Silicon, macOS Intel, Windows, Linux, Other]
+    validations: { required: true }
+  - type: dropdown
+    id: tool
+    attributes:
+      label: AI tool
+      options: [Cursor, Claude Code, Grok Bot, Other / mixed, None / just the app]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Agivard version
+      placeholder: "0.1.0-beta.1"
+    validations: { required: true }
+  - type: textarea
+    id: happened
+    attributes:
+      label: What went wrong
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce

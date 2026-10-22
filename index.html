@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agivard — free developer beta</title>
+<meta name="description" content="A local firewall between your AI coding agent and your computer. Free unsigned developer beta.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<style>
+:root {
+  --bg: #0f1218;
+  --bg2: #171b24;
+  --card: #1c2230;
+  --text: #e8ecf4;
+  --muted: #9aa3b5;
+  --accent: #5b9cff;
+  --accent2: #3dd68c;
+  --warn: #f0b429;
+  --danger: #ff6b6b;
+  --border: #2a3245;
+  --radius: 14px;
+  --max: 920px;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7fa; --bg2: #fff; --card: #fff; --text: #141822;
+    --muted: #5c6578; --border: #dce1ec; --accent: #2563eb;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  line-height: 1.55; font-size: 17px;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 0; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px); z-index: 10;
+}
+.logo { font-weight: 700; letter-spacing: -0.02em; font-size: 1.15rem; color: var(--text); }
+.logo span { color: var(--accent2); }
+nav a { margin-left: 16px; color: var(--muted); font-size: 0.95rem; }
+nav a:hover { color: var(--text); }
+.hero { padding: 56px 0 36px; }
+.hero h1 {
+  font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.15;
+  letter-spacing: -0.03em; margin: 0 0 16px; max-width: 18ch;
+}
+.hero p.lead { color: var(--muted); font-size: 1.15rem; max-width: 40ch; margin: 0 0 28px; }
+.badge {
+  display: inline-block; font-size: 0.78rem; font-weight: 600;
+  padding: 4px 10px; border-radius: 999px; background: #243049;
+  color: var(--accent2); margin-bottom: 14px; border: 1px solid #2f3d5a;
+}
+@media (prefers-color-scheme: light) {
+  .badge { background: #e8f8ef; color: #0a7a45; border-color: #b7e4c7; }
+}
+.btns { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--accent); color: #fff !important; font-weight: 600;
+  padding: 11px 16px; border-radius: 10px; text-decoration: none !important;
+  border: none; cursor: pointer; font-size: 0.95rem;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn.secondary { background: var(--card); color: var(--text) !important; border: 1px solid var(--border); }
+.btn.small { padding: 8px 12px; font-size: 0.88rem; }
+.note { color: var(--muted); font-size: 0.88rem; }
+section { padding: 40px 0; border-top: 1px solid var(--border); }
+h2 { font-size: 1.45rem; letter-spacing: -0.02em; margin: 0 0 16px; }
+h3 { font-size: 1.05rem; margin: 0 0 8px; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px;
+}
+.card .tag { font-size: 0.75rem; font-weight: 700; color: var(--danger); text-transform: uppercase; letter-spacing: 0.04em; }
+.card .tag.ok { color: var(--accent2); }
+.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+.steps li {
+  counter-increment: s; position: relative; padding: 14px 14px 14px 56px;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: 10px;
+}
+.steps li::before {
+  content: counter(s); position: absolute; left: 16px; top: 14px;
+  width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+  color: #fff; font-weight: 700; font-size: 0.9rem;
+  display: grid; place-items: center;
+}
+.shot {
+  width: 100%; border-radius: 12px; border: 1px solid var(--border);
+  margin: 12px 0; background: var(--bg2);
+}
+.row2 { display: grid; gap: 16px; grid-template-columns: 1.1fr 0.9fr; }
+@media (max-width: 720px) { .row2 { grid-template-columns: 1fr; } nav a { margin-left: 10px; } }
+details {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 8px;
+}
+summary { cursor: pointer; font-weight: 600; }
+details p { color: var(--muted); margin: 8px 0 0; }
+footer {
+  padding: 28px 0 48px; color: var(--muted); font-size: 0.88rem;
+  border-top: 1px solid var(--border);
+}
+code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+.warnbox {
+  background: color-mix(in srgb, var(--warn) 12%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-radius: var(--radius); padding: 14px 16px; margin: 12px 0;
+}
+.dl-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.dl-grid a.btn { justify-content: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <a class="logo" href="#">Agivard <span>beta</span></a>
+  <nav>
+    <a href="#download">Download</a>
+    <a href="#setup">Setup</a>
+    <a href="#privacy">Privacy</a>
+    <a href="#faq">FAQ</a>
+    <a href="https://github.com/JafarSuleman/agivard-beta/issues/new/choose">Feedback</a>
+  </nav>
+</header>
+
+<section class="hero" style="border:0;padding-top:48px">
+  <div class="badge">Free developer beta · unsigned builds</div>
+  <h1>A local firewall between your AI coding agent and your computer</h1>
+  <p class="lead">Agivard watches what Cursor, Claude Code and Grok Bot try to run — and stops the scary stuff in plain English before it hits your disk.</p>
+  <div class="btns">
+    <a class="btn" href="#download">Download 0.1.0-beta.1</a>
+    <a class="btn secondary" href="https://github.com/JafarSuleman/agivard-beta/issues/new/choose">Send feedback</a>
+  </div>
+  <p class="note">Runs 100% on your machine. No account. No telemetry.</p>
+</section>
+
+<section id="stops">
+  <h2>What it stops</h2>
+  <div class="grid">
+    <div class="card"><div class="tag">Destructive</div><h3>Wiping the project</h3><p class="note"><code>rm -rf</code>, <code>git clean -fdx</code>, formatters aimed at the wrong path.</p></div>
+    <div class="card"><div class="tag">Git</div><h3>Force-push &amp; history rewrites</h3><p class="note"><code>git push --force</code>, hard resets on shared branches.</p></div>
+    <div class="card"><div class="tag">Secrets</div><h3>Leaking keys</h3><p class="note">API tokens and <code>.env</code> contents heading to unknown sites.</p></div>
+    <div class="card"><div class="tag">Supply chain</div><h3>Fake packages</h3><p class="note">Typosquats and brand-new empty packages on npm, PyPI and crates.io.</p></div>
+    <div class="card"><div class="tag">MCP</div><h3>Prompt injection via tools</h3><p class="note">Hostile plug-in replies that try to steer the agent into unsafe actions.</p></div>
+    <div class="card"><div class="tag ok">Safe work</div><h3>Stays quiet when it should</h3><p class="note">Routine builds, tests and edits pass without nagging (Balanced mode).</p></div>
+  </div>
+</section>
+
+<section id="demo">
+  <h2>See it catch a bad command</h2>
+  <div class="row2">
+    <div>
+      <p class="note">An agent tries <code>git clean -fdx</code>. Agivard pops up in plain English. A normal command goes through.</p>
+      <img class="shot" id="demo-gif" src="assets/demo.gif" alt="Agivard stopping a destructive git clean command" width="800" height="450" onerror="this.style.display='none'">
+    </div>
+    <div>
+      <img class="shot" src="assets/7-approval-popup.png" alt="Agivard approval pop-up">
+      <img class="shot" src="assets/2-home.png" alt="Agivard home screen">
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <h2>Download</h2>
+  <p class="note">Version <strong>0.1.0-beta.1</strong> · unsigned developer builds · <a href="https://github.com/JafarSuleman/agivard-beta/releases/tag/v0.1.0-beta.1">release notes &amp; checksums</a></p>
+  <div class="dl-grid" style="margin-top:16px">
+    <a class="btn" href="https://github.com/JafarSuleman/agivard-beta/releases/download/v0.1.0-beta.1/agivard-macos-arm64.dmg">Mac · Apple Silicon</a>
+    <a class="btn" href="https://github.com/JafarSuleman/agivard-beta/releases/download/v0.1.0-beta.1/agivard-macos-x86_64.dmg">Mac · Intel</a>
+    <a class="btn" href="https://github.com/JafarSuleman/agivard-beta/releases/download/v0.1.0-beta.1/agivard-windows-x86_64.zip">Windows · zip</a>
+    <a class="btn secondary" href="https://github.com/JafarSuleman/agivard-beta/releases/download/v0.1.0-beta.1/agivard-linux-x86_64.deb">Linux · .deb</a>
+    <a class="btn secondary" href="https://github.com/JafarSuleman/agivard-beta/releases/download/v0.1.0-beta.1/agivard-linux-x86_64.AppImage">Linux · AppImage</a>
+  </div>
+</section>
+
+<section id="unsigned">
+  <h2>How to open an unsigned beta</h2>
+  <div class="warnbox"><strong>These builds are not code-signed yet.</strong> Your OS will warn you once. That's expected for a free developer beta.</div>
+  <div class="grid">
+    <div class="card">
+      <h3>macOS</h3>
+      <ol>
+        <li>Open the <code>.dmg</code> and drag Agivard into Applications.</li>
+        <li>First launch: right-click Agivard → <strong>Open</strong>, or go to <strong>System Settings → Privacy &amp; Security → Open Anyway</strong>.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>Windows</h3>
+      <ol>
+        <li>Unzip the download.</li>
+        <li>If SmartScreen appears: <strong>More info → Run anyway</strong>.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>Linux</h3>
+      <ol>
+        <li><code>.deb</code>: <span class="mono">sudo dpkg -i agivard-*.deb</span></li>
+        <li>AppImage: <span class="mono">chmod +x</span> then run it. Needs WebKitGTK.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section id="setup">
+  <h2>Setup in 3 steps</h2>
+  <ol class="steps">
+    <li><strong>Install &amp; open Agivard.</strong> Keep the helper next to the app (the zip/dmg already does this).</li>
+    <li><strong>Connect your AI tools.</strong> One click for Cursor and Claude Code. Optional guard for Grok Bot on Mac.</li>
+    <li><strong>Keep Balanced mode.</strong> Work as usual. When something risky shows up, read the pop-up and decide.</li>
+  </ol>
+  <img class="shot" src="assets/1-setup.png" alt="Agivard setup screen" style="max-width:560px">
+</section>
+
+<section id="privacy">
+  <h2>Privacy</h2>
+  <div class="card">
+    <p><strong>Nothing leaves your machine</strong> except optional package-name lookups to npm, PyPI, crates.io and OSV.dev when you install packages. No accounts. No analytics. No phone-home licence check.</p>
+    <p class="note" style="margin-bottom:0">Feedback is opt-in via GitHub issues. The app never sends it for you.</p>
+  </div>
+</section>
+
+<section id="faq">
+  <h2>FAQ</h2>
+  <details open><summary>Is this free?</summary><p>Yes for the developer beta. Use it, break it, tell us what went wrong.</p></details>
+  <details><summary>Will it slow my agent down?</summary><p>Checks are local and fast. Balanced mode stays quiet on ordinary work (our harness measures ~0 prompts per simulated day on routine commands).</p></details>
+  <details><summary>What if Agivard crashes?</summary><p>Hooks fail open — your AI tool keeps working. Agivard never holds the tool hostage.</p></details>
+  <details><summary>Where is the source?</summary><p>Agivard is proprietary. This site only ships the beta binaries and docs. Third-party open-source licences are listed in THIRD-PARTY-NOTICES.</p></details>
+  <details><summary>How do I report a false alarm?</summary><p>Use <a href="https://github.com/JafarSuleman/agivard-beta/issues/new/choose">Send feedback</a>, pick “Wrong block / false alarm”, and paste the command.</p></details>
+</section>
+
+<footer>
+  <p>Agivard developer beta · © 2026 Jafar Suleman · <a href="LICENSE">Licence</a> · <a href="THIRD-PARTY-NOTICES.md">Third-party notices</a> · <a href="https://github.com/JafarSuleman/agivard-beta">GitHub</a></p>
+  <p>Built for vibe coders and juniors using Cursor, Claude Code and Grok Bot.</p>
+</footer>
+</div>
+</body>
+</html>

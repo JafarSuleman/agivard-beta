@@ -1,0 +1,33 @@
+name: Missed something dangerous
+description: Something risky got through that Agivard should have stopped.
+title: "[Missed] "
+labels: ["missed", "beta"]
+body:
+  - type: dropdown
+    id: os
+    attributes:
+      label: Your OS
+      options: [macOS Apple Silicon, macOS Intel, Windows, Linux, Other]
+    validations: { required: true }
+  - type: dropdown
+    id: tool
+    attributes:
+      label: AI tool
+      options: [Cursor, Claude Code, Grok Bot, Other / mixed]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Agivard version
+      placeholder: "0.1.0-beta.1"
+    validations: { required: true }
+  - type: textarea
+    id: happened
+    attributes:
+      label: What slipped through
+      description: Command or plug-in call. Redact real secrets — use fakes like sk_test_EXAMPLE.
+    validations: { required: true }
+  - type: textarea
+    id: impact
+    attributes:
+      label: Why it was dangerous

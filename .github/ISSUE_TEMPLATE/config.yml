@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Download the beta
+    url: https://jafarsuleman.github.io/agivard-beta/
+    about: Get the latest unsigned developer builds.

@@ -1,0 +1,26 @@
+Agivard Developer Beta Licence
+==============================
+
+Copyright (c) 2026 Jafar Suleman. All rights reserved.
+
+Permission is granted to download and use Agivard free of charge during this
+developer beta, on computers you control, for evaluating and giving feedback.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM USE
+OF THE SOFTWARE.
+
+You may not reverse engineer, decompile, disassemble, or otherwise attempt to
+derive the source code of Agivard, except to the extent that such activity is
+expressly permitted by applicable law notwithstanding this limitation.
+
+You may not redistribute Agivard binaries under a different name, remove this
+notice, or claim Agivard as your own product.
+
+Feedback you send (for example via GitHub issues) may be used to improve
+Agivard. No telemetry is collected by the app itself.
+
+Third-party open-source components bundled with Agivard remain under their
+own licences — see THIRD-PARTY-NOTICES.md.
