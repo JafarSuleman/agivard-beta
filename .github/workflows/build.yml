@@ -1,0 +1,408 @@
+# Builds the Agivard installers from the private source repository.
+#
+# Security notes
+# - Runs ONLY on manual dispatch or on pushed tags named build-*. There are no
+#   pull_request / pull_request_target triggers, so forks can't run this with
+#   access to the secret.
+# - The private source is fetched with a READ-ONLY deploy key
+#   (secret AGIVARD_SRC_DEPLOY_KEY) into the runner's temp dir, never into this
+#   public repo's workspace, and deleted at the end.
+# - Token permissions are read-only. Only finished installers are uploaded as
+#   artifacts (no source, no target/ dir, no debug symbols). target/ is never
+#   cached; only the public crates.io registry is.
+# - Third-party actions are pinned to full commit SHAs.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit of the private source to build"
+        required: true
+        default: main
+  push:
+    tags:
+      - "build-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, label: macos-arm64 }
+          - { os: macos-15-intel, label: macos-x86_64 }
+          - { os: windows-latest, label: windows-x86_64 }
+          - { os: ubuntu-22.04, label: linux-x86_64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    env:
+      SRC_REPO: git@github.com:JafarSuleman/Agivard.git
+      SRC_REF: ${{ inputs.ref || 'main' }}
+      VERSION: 0.1.0-beta.2
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Load read-only deploy key
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.AGIVARD_SRC_DEPLOY_KEY }}
+
+      - name: Fetch private source into temp dir
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/agivard-src"
+          OUT="$GITHUB_WORKSPACE/out"
+          echo "SRC=$SRC" >> "$GITHUB_ENV"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+          rm -rf "$SRC" && mkdir -p "$SRC" "$OUT"
+          git -C "$SRC" init -q
+          git -C "$SRC" remote add origin "$SRC_REPO"
+          git -C "$SRC" fetch -q --depth 1 origin "$SRC_REF"
+          git -C "$SRC" checkout -q FETCH_HEAD
+          echo "Building source commit $(git -C "$SRC" rev-parse HEAD)"
+          LOCKHASH=$(git -C "$SRC" hash-object Cargo.lock)
+          echo "LOCKHASH=$LOCKHASH" >> "$GITHUB_ENV"
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          # Skip slow man-db triggers (a common cause of apt "hangs" on runners).
+          sudo rm -f /var/lib/man-db/auto-update || true
+          sudo -E apt-get -q update
+          sudo -E apt-get install -y -q --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev libxdo-dev xvfb xauth dbus-x11 zsh \
+            file desktop-file-utils
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version
+
+      - name: Cache crates.io registry (not target/)
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+          key: cargo-registry-${{ matrix.label }}-${{ env.LOCKHASH }}
+          restore-keys: cargo-registry-${{ matrix.label }}-
+
+      - name: Build (CI profile, unsigned)
+        run: |
+          cd "$SRC"
+          cargo build --profile ci --locked -p agivard-cli -p agivard-app
+
+      - name: Test
+        timeout-minutes: 30
+        run: |
+          cd "$SRC"
+          cargo test --locked --workspace --no-fail-fast
+
+      # ---- Package -----------------------------------------------------------
+      - name: Mac — Agivard.app in a drag-to-Applications DMG (signed last)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          cd "$SRC"
+          APP=build/Agivard.app
+          rm -rf build && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp target/ci/agivard-app "$APP/Contents/MacOS/agivard-app"
+          cp target/ci/agivard "$APP/Contents/MacOS/agivard"
+          cp crates/agivard-app/icons/icon.icns "$APP/Contents/Resources/Agivard.icns"
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Agivard</string>
+            <key>CFBundleDisplayName</key><string>Agivard</string>
+            <key>CFBundleIdentifier</key><string>app.agivard.desktop</string>
+            <key>CFBundleExecutable</key><string>agivard-app</string>
+            <key>CFBundleIconFile</key><string>Agivard</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>LSUIElement</key><true/>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          sed -i '' 's/^          //' "$APP/Contents/Info.plist"
+          plutil -lint "$APP/Contents/Info.plist"
+          file "$APP/Contents/MacOS/agivard-app"
+          # Sign LAST. Nothing may be added under Contents/ after this, or
+          # Gatekeeper reports the app as "damaged".
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          STAGE=$(mktemp -d)/dmg
+          mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/Agivard.app"
+          ln -s /Applications "$STAGE/Applications"
+          cat > "$STAGE/How to install.txt" <<TXT
+          Install Agivard
+          ===============
+          1. Drag Agivard.app onto the Applications folder.
+          2. Open Agivard from Applications (not from this window).
+          3. If macOS says it can't be opened: System Settings → Privacy & Security → Open Anyway.
+          4. If macOS says the app is "damaged", quarantine is stuck. In Terminal:
+             xattr -dr com.apple.quarantine /Applications/Agivard.app
+             then open Agivard again.
+
+          Don't run agivard-app on its own — it has to stay inside Agivard.app.
+          TXT
+          sed -i '' 's/^          //' "$STAGE/How to install.txt"
+          hdiutil create -volname Agivard -srcfolder "$STAGE" -ov -format UDZO "$OUT/agivard-${{ matrix.label }}.dmg"
+          ls -la "$OUT"
+
+      - name: Windows — zip and NSIS installer
+        if: runner.os == 'Windows'
+        run: |
+          set -euo pipefail
+          cd "$SRC"
+          rm -rf dist && mkdir -p dist/Agivard
+          cp target/ci/agivard.exe target/ci/agivard-app.exe dist/Agivard/
+          cat > dist/Agivard/README.txt <<'TXT'
+          Agivard for Windows
+          ===================
+          Keep agivard.exe and agivard-app.exe in this folder.
+
+          To start: double-click agivard-app.exe.
+
+          agivard.exe is the helper the app needs — don't move or delete it.
+          TXT
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          d = pathlib.Path("dist/Agivard")
+          sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+          m = {"helper_sha256": sha(d / "agivard.exe"), "app_sha256": sha(d / "agivard-app.exe"), "version": os.environ["VERSION"]}
+          (d / "agivard.manifest.json").write_text(json.dumps(m, indent=2) + "\n")
+          print(m)
+          PY
+          powershell -Command "Compress-Archive -Path 'dist/Agivard' -DestinationPath 'agivard-${{ matrix.label }}.zip'"
+          choco install nsis -y --no-progress >/dev/null
+          MAKENSIS=""
+          for c in "/c/Program Files (x86)/NSIS/makensis.exe" "/c/Program Files/NSIS/makensis.exe" "$(command -v makensis || true)"; do
+            if [ -n "$c" ] && [ -x "$c" ]; then MAKENSIS="$c"; break; fi
+          done
+          [ -n "$MAKENSIS" ] || { echo "makensis not found" >&2; exit 1; }
+          test -f crates/agivard-app/icons/icon.ico
+          cat > agivard.nsi <<'NSI'
+          Name "Agivard"
+          OutFile "agivard-windows-x86_64-setup.exe"
+          Icon "crates\agivard-app\icons\icon.ico"
+          UninstallIcon "crates\agivard-app\icons\icon.ico"
+          InstallDir "$LOCALAPPDATA\Agivard"
+          RequestExecutionLevel user
+          Page directory
+          Page instfiles
+          Section "Install"
+            SetOutPath "$INSTDIR"
+            File /r "dist\Agivard\*.*"
+            File "crates\agivard-app\icons\icon.ico"
+            WriteUninstaller "$INSTDIR\Uninstall.exe"
+            CreateShortCut "$SMPROGRAMS\Agivard.lnk" "$INSTDIR\agivard-app.exe" "" "$INSTDIR\icon.ico"
+            CreateShortCut "$DESKTOP\Agivard.lnk" "$INSTDIR\agivard-app.exe" "" "$INSTDIR\icon.ico"
+          SectionEnd
+          Section "Uninstall"
+            Delete "$INSTDIR\Uninstall.exe"
+            RMDir /r "$INSTDIR"
+            Delete "$SMPROGRAMS\Agivard.lnk"
+            Delete "$DESKTOP\Agivard.lnk"
+          SectionEnd
+          NSI
+          sed -i 's/^          //' agivard.nsi
+          "$MAKENSIS" -V2 agivard.nsi
+          mv agivard-windows-x86_64-setup.exe "agivard-${{ matrix.label }}.zip" "$OUT/"
+          ls -la "$OUT"
+
+      - name: Linux — tar.gz, .deb and AppImage
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          cd "$SRC"
+          rm -rf dist packaging && mkdir -p dist/Agivard
+          cp target/ci/agivard target/ci/agivard-app dist/Agivard/
+          cat > dist/Agivard/README.txt <<'TXT'
+          Agivard for Linux
+          =================
+          Keep agivard and agivard-app in this folder.
+
+          To start: ./agivard-app
+
+          Needs WebKitGTK (libwebkit2gtk-4.1-0) and a tray/AppIndicator.
+          agivard is the helper the app needs — don't move or delete it.
+          TXT
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          d = pathlib.Path("dist/Agivard")
+          sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+          m = {"helper_sha256": sha(d / "agivard"), "app_sha256": sha(d / "agivard-app"), "version": os.environ["VERSION"]}
+          (d / "agivard.manifest.json").write_text(json.dumps(m, indent=2) + "\n")
+          print(m)
+          PY
+          tar -czf "$OUT/agivard-${{ matrix.label }}.tar.gz" -C dist Agivard
+          # .deb
+          DEB=packaging/agivard_${VERSION}_amd64
+          mkdir -p "$DEB/DEBIAN" "$DEB/usr/lib/agivard" "$DEB/usr/bin" "$DEB/usr/share/doc/agivard" \
+                   "$DEB/usr/share/icons/hicolor/256x256/apps" "$DEB/usr/share/icons/hicolor/128x128/apps" "$DEB/usr/share/applications"
+          cp dist/Agivard/agivard dist/Agivard/agivard-app dist/Agivard/agivard.manifest.json "$DEB/usr/lib/agivard/"
+          cp dist/Agivard/README.txt "$DEB/usr/share/doc/agivard/"
+          cp assets/brand/icon-256.png "$DEB/usr/share/icons/hicolor/256x256/apps/agivard.png"
+          cp assets/brand/icon-128.png "$DEB/usr/share/icons/hicolor/128x128/apps/agivard.png"
+          printf '[Desktop Entry]\nType=Application\nName=Agivard\nComment=Local firewall for AI coding tools\nExec=agivard-app\nIcon=agivard\nCategories=Utility;Security;\nTerminal=false\n' > "$DEB/usr/share/applications/agivard.desktop"
+          desktop-file-validate "$DEB/usr/share/applications/agivard.desktop"
+          ln -s ../lib/agivard/agivard "$DEB/usr/bin/agivard"
+          ln -s ../lib/agivard/agivard-app "$DEB/usr/bin/agivard-app"
+          printf 'Package: agivard\nVersion: %s\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Jafar Suleman <157279796+JafarSuleman@users.noreply.github.com>\nDepends: libwebkit2gtk-4.1-0, libgtk-3-0, libayatana-appindicator3-1\nDescription: Agivard — keeps your AI tools in line\n Local firewall between AI coding tools and your computer.\n' "$VERSION" > "$DEB/DEBIAN/control"
+          dpkg-deb --root-owner-group --build "$DEB" "$OUT/agivard-linux-x86_64.deb"
+          # AppImage
+          APPDIR=packaging/Agivard.AppDir
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib/agivard" "$APPDIR/usr/share/applications"
+          cp dist/Agivard/agivard dist/Agivard/agivard-app dist/Agivard/agivard.manifest.json "$APPDIR/usr/lib/agivard/"
+          ln -s ../lib/agivard/agivard "$APPDIR/usr/bin/agivard"
+          ln -s ../lib/agivard/agivard-app "$APPDIR/usr/bin/agivard-app"
+          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexport PATH="$HERE/usr/bin:$PATH"\nexec "$HERE/usr/lib/agivard/agivard-app" "$@"\n' > "$APPDIR/AppRun"
+          chmod +x "$APPDIR/AppRun"
+          cp "$DEB/usr/share/applications/agivard.desktop" "$APPDIR/agivard.desktop"
+          cp "$APPDIR/agivard.desktop" "$APPDIR/usr/share/applications/"
+          cp assets/brand/icon-256.png "$APPDIR/agivard.png"
+          cp assets/brand/icon-256.png "$APPDIR/.DirIcon"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/appimagetool" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          ARCH=x86_64 "$RUNNER_TEMP/appimagetool" --appimage-extract-and-run "$APPDIR" "$OUT/agivard-linux-x86_64.AppImage"
+          chmod +x "$OUT/agivard-linux-x86_64.AppImage"
+          ls -la "$OUT"
+
+      # ---- Install smoke tests (fail the build on any problem) ---------------
+      - name: Mac — install smoke (signature, quarantine, launch, integrity, icon)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          MNT=$(mktemp -d)
+          hdiutil attach "$OUT/agivard-${{ matrix.label }}.dmg" -mountpoint "$MNT" -nobrowse -readonly
+          codesign --verify --deep --strict --verbose=2 "$MNT/Agivard.app"
+          DEST="/Applications"
+          if ! touch "$DEST/.agivard-ci-write" 2>/dev/null; then DEST="$HOME/Applications"; mkdir -p "$DEST"; else rm -f "$DEST/.agivard-ci-write"; fi
+          rm -rf "$DEST/Agivard.app"
+          cp -R "$MNT/Agivard.app" "$DEST/Agivard.app"
+          hdiutil detach "$MNT"
+          APP="$DEST/Agivard.app"
+          echo "Installed to $APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          xattr -w com.apple.quarantine "0081;00000000;Safari;00000000-0000-0000-0000-000000000000" "$APP"
+          xattr -p com.apple.quarantine "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          # New brand icon is the one in the bundle
+          cmp "$APP/Contents/Resources/Agivard.icns" "$SRC/crates/agivard-app/icons/icon.icns"
+          echo "Bundle icon matches brand icon.icns"
+          xattr -dr com.apple.quarantine "$APP"
+          VER=$("$APP/Contents/MacOS/agivard" --version); echo "$VER"
+          echo "$VER" | grep -q "$VERSION"
+          INTEG=$("$APP/Contents/MacOS/agivard" integrity 2>&1 || true); echo "$INTEG"
+          echo "$INTEG" | grep -q 'Everything looks intact'
+          SMOKE_HOME=$(mktemp -d)
+          AGIVARD_APP_SMOKE=1 AGIVARD_APP_ROUTE=home AGIVARD_HOME="$SMOKE_HOME" "$APP/Contents/MacOS/agivard-app" >/tmp/app-smoke.log 2>&1 &
+          APID=$!
+          for i in $(seq 1 30); do grep -q home "$SMOKE_HOME/smoke.log" 2>/dev/null && break; sleep 1; done
+          kill -0 "$APID" || { echo "app exited early" >&2; tail -n 20 /tmp/app-smoke.log >&2; exit 1; }
+          if grep -q home "$SMOKE_HOME/smoke.log" 2>/dev/null; then echo "App window rendered: $(tr '\n' ' ' < "$SMOKE_HOME/smoke.log" | cut -c1-200)"; else echo "App running (no render log on this runner)"; fi
+          kill "$APID" || true; wait "$APID" 2>/dev/null || true
+          echo "Mac smoke OK for ${{ matrix.label }}"
+
+      - name: Windows — NSIS silent install smoke
+        if: runner.os == 'Windows'
+        run: |
+          set -euo pipefail
+          cd "$OUT"
+          rm -rf "$LOCALAPPDATA/Agivard"
+          powershell -Command "Start-Process -FilePath (Resolve-Path '.\agivard-windows-x86_64-setup.exe') -ArgumentList '/S' -Wait"
+          BIN="$LOCALAPPDATA/Agivard"
+          test -f "$BIN/agivard.exe" && test -f "$BIN/agivard-app.exe" && test -f "$BIN/Uninstall.exe"
+          cmp "$BIN/icon.ico" "$SRC/crates/agivard-app/icons/icon.ico" && echo "Installed icon matches brand icon.ico"
+          VER=$("$BIN/agivard.exe" --version); echo "$VER"
+          echo "$VER" | grep -q "$VERSION"
+          INTEG=$("$BIN/agivard.exe" integrity 2>&1 || true); echo "$INTEG"
+          echo "$INTEG" | grep -q 'Everything looks intact'
+          SMOKE_HOME="$RUNNER_TEMP/agivard-smoke"; mkdir -p "$SMOKE_HOME"
+          AGIVARD_APP_SMOKE=1 AGIVARD_APP_ROUTE=home AGIVARD_HOME="$SMOKE_HOME" "$BIN/agivard-app.exe" >"$RUNNER_TEMP/app-smoke.log" 2>&1 &
+          APID=$!
+          for i in $(seq 1 30); do grep -q home "$SMOKE_HOME/smoke.log" 2>/dev/null && break; sleep 1; done
+          kill -0 "$APID" || { echo "app exited early" >&2; exit 1; }
+          if grep -q home "$SMOKE_HOME/smoke.log" 2>/dev/null; then echo "App window rendered"; else echo "App running (no render log on this runner)"; fi
+          kill "$APID" 2>/dev/null || true
+          taskkill //IM agivard-app.exe //F >/dev/null 2>&1 || true
+          sleep 2
+          powershell -Command "Start-Process -FilePath '$BIN/Uninstall.exe' -ArgumentList '/S' -Wait"
+          # The NSIS uninstaller re-launches itself from %TEMP%, so wait for the files to go.
+          for i in $(seq 1 30); do [ -f "$BIN/agivard.exe" ] || break; sleep 1; done
+          if [ -f "$BIN/agivard.exe" ]; then echo "uninstall left files behind" >&2; exit 1; fi
+          echo "Uninstalled cleanly"
+          echo "Windows smoke OK"
+
+      - name: Linux — .deb and AppImage smoke
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          cd "$OUT"
+          sudo dpkg -i agivard-linux-x86_64.deb
+          dpkg -s agivard | grep -E '^(Status|Version)'
+          cmp /usr/share/icons/hicolor/256x256/apps/agivard.png "$SRC/assets/brand/icon-256.png" && echo "Installed icon matches brand icon-256.png"
+          VER=$(agivard --version); echo "$VER"
+          echo "$VER" | grep -q "$VERSION"
+          INTEG=$(agivard integrity 2>&1 || true); echo "$INTEG"
+          echo "$INTEG" | grep -q 'Everything looks intact'
+          # Installed app launches under a virtual display
+          H1=$(mktemp -d)
+          AGIVARD_APP_SMOKE=1 AGIVARD_APP_ROUTE=home AGIVARD_HOME="$H1" WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 \
+            timeout 90 xvfb-run -a dbus-run-session -- agivard-app >/tmp/deb-app.log 2>&1 &
+          for i in $(seq 1 60); do grep -q home "$H1/smoke.log" 2>/dev/null && break; sleep 1; done
+          grep -q home "$H1/smoke.log" || { echo ".deb app did not render" >&2; tail -n 30 /tmp/deb-app.log >&2; exit 1; }
+          echo ".deb app rendered Home"
+          pkill -f /usr/lib/agivard/agivard-app || true
+          # AppImage (no FUSE): extract-and-run
+          H2=$(mktemp -d)
+          AGIVARD_APP_SMOKE=1 AGIVARD_APP_ROUTE=home AGIVARD_HOME="$H2" WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 NO_AT_BRIDGE=1 \
+            timeout 90 xvfb-run -a dbus-run-session -- ./agivard-linux-x86_64.AppImage --appimage-extract-and-run >/tmp/ai-app.log 2>&1 &
+          for i in $(seq 1 60); do grep -q home "$H2/smoke.log" 2>/dev/null && break; sleep 1; done
+          grep -q home "$H2/smoke.log" || { echo "AppImage app did not render" >&2; tail -n 30 /tmp/ai-app.log >&2; exit 1; }
+          echo "AppImage app rendered Home"
+          pkill -f agivard-app || true
+          ./agivard-linux-x86_64.AppImage --appimage-extract >/dev/null
+          AIV=$(./squashfs-root/usr/lib/agivard/agivard --version); echo "AppImage helper: $AIV"
+          echo "$AIV" | grep -q "$VERSION"
+          cmp squashfs-root/.DirIcon "$SRC/assets/brand/icon-256.png" && echo "AppImage icon matches brand"
+          rm -rf squashfs-root
+          sudo dpkg -r agivard
+          echo "Linux smoke OK"
+
+      - name: Upload installers only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agivard-${{ matrix.label }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove private source checkout
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/agivard-src" "$RUNNER_TEMP/appimagetool"
+          echo "Source checkout removed"
